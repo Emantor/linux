@@ -216,5 +216,14 @@
 			clocks = <&clk24>, <&pmgr0 APPLE_CLK_SIO>,
 				<&pmgr0 APPLE_CLK_UART_P>;
 		};
+
+               hdd: generic-nvmexpress@27bcc0000 {
+                       compatible = "apple,t8103-nvmexpress", "generic-nvmexpress";
+                       reg = <0x2 0x7bcc0000 0x0 0x40000>;
+                       interrupt-parent = <&aic>;
+                       interrupts = <AIC_IRQ 590 IRQ_TYPE_LEVEL_HIGH>;
+		       mboxes = <&ans 0x20>;
+               };
+
 	};
 };
