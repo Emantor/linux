@@ -15,14 +15,7 @@
 #include <linux/slab.h>
 #include <linux/io.h>
 
-static struct pci_driver pasemi_smb_driver;
-
-struct pasemi_smbus {
-	struct pci_dev		*dev;
-	struct i2c_adapter	 adapter;
-	unsigned long		 base;
-	int			 size;
-};
+#include "i2c-pasemi-core.h"
 
 /* Register offsets */
 #define REG_MTXFIFO	0x00
@@ -51,22 +44,32 @@ struct pasemi_smbus {
 
 static inline void reg_write(struct pasemi_smbus *smbus, int reg, int val)
 {
-	dev_dbg(&smbus->dev->dev, "smbus write reg %lx val %08x\n",
+	dev_dbg(smbus->dev, "smbus write reg %lx val %08x\n",
 		smbus->base + reg, val);
-	outl(val, smbus->base + reg);
+	iowrite32(val, smbus->ioaddr + reg);
 }
 
 static inline int reg_read(struct pasemi_smbus *smbus, int reg)
 {
 	int ret;
-	ret = inl(smbus->base + reg);
-	dev_dbg(&smbus->dev->dev, "smbus read reg %lx val %08x\n",
+	ret = ioread32(smbus->ioaddr + reg);
+	dev_dbg(smbus->dev, "smbus read reg %lx val %08x\n",
 		smbus->base + reg, ret);
 	return ret;
 }
 
 #define TXFIFO_WR(smbus, reg)	reg_write((smbus), REG_MTXFIFO, (reg))
 #define RXFIFO_RD(smbus)	reg_read((smbus), REG_MRXFIFO)
+
+static void pasemi_reset(struct pasemi_smbus *smbus)
+{
+	u32 val = (CTL_MTR | CTL_MRR | (CLK_400K_DIV & CTL_CLK_M));
+
+	if (smbus->need_ctl_unk800)
+		val |= 0x800;
+
+	reg_write(smbus, REG_CTL, val);
+}
 
 static void pasemi_smb_clear(struct pasemi_smbus *smbus)
 {
@@ -93,7 +96,7 @@ static int pasemi_smb_waitready(struct pasemi_smbus *smbus)
 		return -ENXIO;
 
 	if (timeout < 0) {
-		dev_warn(&smbus->dev->dev, "Timeout, status 0x%08x\n", status);
+		dev_warn(smbus->dev, "Timeout, status 0x%08x\n", status);
 		reg_write(smbus, REG_SMSTA, status);
 		return -ETIME;
 	}
@@ -142,8 +145,7 @@ static int pasemi_i2c_xfer_msg(struct i2c_adapter *adapter,
 	return 0;
 
  reset_out:
-	reg_write(smbus, REG_CTL, (CTL_MTR | CTL_MRR |
-		  (CLK_100K_DIV & CTL_CLK_M)));
+	pasemi_reset(smbus);
 	return err;
 }
 
@@ -309,8 +311,7 @@ static int pasemi_smb_xfer(struct i2c_adapter *adapter,
 	return 0;
 
  reset_out:
-	reg_write(smbus, REG_CTL, (CTL_MTR | CTL_MRR |
-		  (CLK_100K_DIV & CTL_CLK_M)));
+	pasemi_reset(smbus);
 	return err;
 }
 
@@ -322,88 +323,30 @@ static u32 pasemi_smb_func(struct i2c_adapter *adapter)
 	       I2C_FUNC_SMBUS_BLOCK_PROC_CALL | I2C_FUNC_I2C;
 }
 
-static const struct i2c_algorithm smbus_algorithm = {
+const struct i2c_algorithm smbus_algorithm = {
 	.master_xfer	= pasemi_i2c_xfer,
 	.smbus_xfer	= pasemi_smb_xfer,
 	.functionality	= pasemi_smb_func,
 };
 
-static int pasemi_smb_probe(struct pci_dev *dev,
-				      const struct pci_device_id *id)
+int pasemi_i2c_common_probe(struct pasemi_smbus *smbus)
 {
-	struct pasemi_smbus *smbus;
 	int error;
-
-	if (!(pci_resource_flags(dev, 0) & IORESOURCE_IO))
-		return -ENODEV;
-
-	smbus = kzalloc(sizeof(struct pasemi_smbus), GFP_KERNEL);
-	if (!smbus)
-		return -ENOMEM;
-
-	smbus->dev = dev;
-	smbus->base = pci_resource_start(dev, 0);
-	smbus->size = pci_resource_len(dev, 0);
-
-	if (!request_region(smbus->base, smbus->size,
-			    pasemi_smb_driver.name)) {
-		error = -EBUSY;
-		goto out_kfree;
-	}
 
 	smbus->adapter.owner = THIS_MODULE;
 	snprintf(smbus->adapter.name, sizeof(smbus->adapter.name),
 		 "PA Semi SMBus adapter at 0x%lx", smbus->base);
-	smbus->adapter.class = I2C_CLASS_HWMON | I2C_CLASS_SPD;
 	smbus->adapter.algo = &smbus_algorithm;
 	smbus->adapter.algo_data = smbus;
 
 	/* set up the sysfs linkage to our parent device */
-	smbus->adapter.dev.parent = &dev->dev;
+	smbus->adapter.dev.parent = smbus->dev;
 
-	reg_write(smbus, REG_CTL, (CTL_MTR | CTL_MRR |
-		  (CLK_100K_DIV & CTL_CLK_M)));
+	pasemi_reset(smbus);
 
 	error = i2c_add_adapter(&smbus->adapter);
 	if (error)
-		goto out_release_region;
-
-	pci_set_drvdata(dev, smbus);
+		return error;
 
 	return 0;
-
- out_release_region:
-	release_region(smbus->base, smbus->size);
- out_kfree:
-	kfree(smbus);
-	return error;
 }
-
-static void pasemi_smb_remove(struct pci_dev *dev)
-{
-	struct pasemi_smbus *smbus = pci_get_drvdata(dev);
-
-	i2c_del_adapter(&smbus->adapter);
-	release_region(smbus->base, smbus->size);
-	kfree(smbus);
-}
-
-static const struct pci_device_id pasemi_smb_ids[] = {
-	{ PCI_DEVICE(0x1959, 0xa003) },
-	{ 0, }
-};
-
-MODULE_DEVICE_TABLE(pci, pasemi_smb_ids);
-
-static struct pci_driver pasemi_smb_driver = {
-	.name		= "i2c-pasemi",
-	.id_table	= pasemi_smb_ids,
-	.probe		= pasemi_smb_probe,
-	.remove		= pasemi_smb_remove,
-};
-
-module_pci_driver(pasemi_smb_driver);
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR ("Olof Johansson <olof@lixom.net>");
-MODULE_DESCRIPTION("PA Semi PWRficient SMBus driver");
