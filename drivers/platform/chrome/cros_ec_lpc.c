@@ -537,6 +537,12 @@ static const struct acpi_device_id cros_ec_lpc_acpi_device_ids[] = {
 };
 MODULE_DEVICE_TABLE(acpi, cros_ec_lpc_acpi_device_ids);
 
+static const struct lpc_driver_data framework_laptop_lpc_driver_data __initconst = {
+	.quirks = CROS_EC_LPC_QUIRK_REMAP_MEMORY |
+		  CROS_EC_LPC_QUIRK_SHORT_HOSTCMD_RESERVATION,
+	.quirk_mmio_memory_base = 0xE00,
+};
+
 static const struct dmi_system_id cros_ec_lpc_dmi_table[] __initconst = {
 	{
 		/*
@@ -596,6 +602,7 @@ static const struct dmi_system_id cros_ec_lpc_dmi_table[] __initconst = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Framework"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "Laptop"),
 		},
+		.driver_data = &framework_laptop_lpc_driver_data,
 	},
 	{ /* sentinel */ }
 };
