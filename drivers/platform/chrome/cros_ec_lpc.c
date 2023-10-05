@@ -34,6 +34,29 @@
 /* True if ACPI device is present */
 static bool cros_ec_lpc_acpi_device_found;
 
+/*
+ * If this quirk is enabled, the driver will only reserve 0xFF I/O ports
+ * (rather than 0x100) for the host command mapped memory region.
+ */
+#define CROS_EC_LPC_QUIRK_SHORT_HOSTCMD_RESERVATION BIT(0)
+/*
+ * If this quirk is enabled, lpc_driver_data.quirk_mmio_memory_base will be used
+ * as the base port for EC mapped memory.
+ */
+#define CROS_EC_LPC_QUIRK_REMAP_MEMORY              BIT(1)
+
+/**
+ * struct lpc_driver_data - driver data attached to a DMI device ID to indicate
+ *                          hardware quirks.
+ * @quirks: a bitfield composed of quirks from CROS_EC_LPC_QUIRK_*
+ * @quirk_mmio_memory_base: The first I/O port addressing EC mapped memory (used
+ *                          when quirks (...REMAP_MEMORY) is set.
+ */
+struct lpc_driver_data {
+	u32 quirks;
+	u16 quirk_mmio_memory_base;
+};
+
 /**
  * struct cros_ec_lpc - LPC device-specific data
  * @mmio_memory_base: The first I/O port addressing EC mapped memory.
@@ -358,11 +381,13 @@ static void cros_ec_lpc_acpi_notify(acpi_handle device, u32 value, void *data)
 
 static int cros_ec_lpc_probe(struct platform_device *pdev)
 {
+	int region1_size = EC_HOST_CMD_REGION_SIZE;
 	struct device *dev = &pdev->dev;
 	struct acpi_device *adev;
 	acpi_status status;
 	struct cros_ec_device *ec_dev;
 	struct cros_ec_lpc *ec_lpc;
+	struct lpc_driver_data *driver_data;
 	u8 buf[2] = {};
 	int irq, ret;
 
@@ -371,6 +396,20 @@ static int cros_ec_lpc_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	ec_lpc->mmio_memory_base = EC_LPC_ADDR_MEMMAP;
+
+	driver_data = platform_get_drvdata(pdev);
+	if (driver_data) {
+		u32 quirks = driver_data->quirks;
+
+		if (quirks)
+			dev_warn(dev, "loaded with quirks %8.08x\n", quirks);
+
+		if (quirks & CROS_EC_LPC_QUIRK_REMAP_MEMORY)
+			ec_lpc->mmio_memory_base = driver_data->quirk_mmio_memory_base;
+
+		if (quirks & CROS_EC_LPC_QUIRK_SHORT_HOSTCMD_RESERVATION)
+			region1_size -= 1;
+	}
 
 	/*
 	 * The Framework Laptop (and possibly other non-ChromeOS devices)
@@ -420,7 +459,7 @@ static int cros_ec_lpc_probe(struct platform_device *pdev)
 			return -EBUSY;
 		}
 		if (!devm_request_region(dev, EC_HOST_CMD_REGION1,
-					 EC_HOST_CMD_REGION_SIZE, dev_name(dev))) {
+					 region1_size, dev_name(dev))) {
 			dev_err(dev, "couldn't reserve region1\n");
 			return -EBUSY;
 		}
