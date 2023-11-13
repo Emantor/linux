@@ -179,6 +179,8 @@ struct cros_ec_device {
 			struct cros_ec_command *msg);
 	int (*pkt_xfer)(struct cros_ec_device *ec,
 			struct cros_ec_command *msg);
+	void (*ec_lock)(struct cros_ec_device *ec);
+	void (*ec_unlock)(struct cros_ec_device *ec);
 	struct lock_class_key lockdep_key;
 	struct mutex lock;
 	u8 mkbp_event_supported;
