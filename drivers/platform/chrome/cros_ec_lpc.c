@@ -33,6 +33,7 @@
 
 /* True if ACPI device is present */
 static bool cros_ec_lpc_acpi_device_found;
+#define ACPI_LOCK_DELAY_MS 500
 
 /*
  * If this quirk is enabled, the driver will only reserve 0xFF I/O ports
@@ -55,6 +56,7 @@ static bool cros_ec_lpc_acpi_device_found;
 struct lpc_driver_data {
 	u32 quirks;
 	u16 quirk_mmio_memory_base;
+	acpi_string mutex;
 };
 
 /**
@@ -379,6 +381,24 @@ static void cros_ec_lpc_acpi_notify(acpi_handle device, u32 value, void *data)
 		pm_system_wakeup();
 }
 
+static void cros_ec_lpc_mutex_lock(struct cros_ec_device *ec_dev)
+{
+	acpi_status status = acpi_acquire_mutex(ec_dev->aml_mutex,
+						NULL, ACPI_LOCK_DELAY_MS);
+	if (!ACPI_SUCCESS(status)) {
+		dev_err(ec_dev->dev, "mutex lock failed with %u", status);
+	}
+}
+
+static void cros_ec_lpc_mutex_unlock(struct cros_ec_device *ec_dev)
+{
+	bool status = acpi_release_mutex(ec_dev->aml_mutex, NULL);
+
+	if (!ACPI_SUCCESS(status)) {
+		dev_err(ec_dev->dev, "mutex unlock failed with %u", status);
+	}
+}
+
 static int cros_ec_lpc_probe(struct platform_device *pdev)
 {
 	int region1_size = EC_HOST_CMD_REGION_SIZE;
@@ -492,6 +512,22 @@ static int cros_ec_lpc_probe(struct platform_device *pdev)
 		return irq;
 	}
 
+	adev = ACPI_COMPANION(dev);
+
+	if(driver_data->mutex && adev) {
+		status = acpi_get_handle(adev, driver_data->mutex, &ec_dev->aml_mutex);
+		if (ACPI_FAILURE(status)) {
+			dev_err(ec_dev->dev, "Failed to get AML mutex '%s': error %d",
+				driver_data->mutex, status);
+			return -ENOENT;
+		}
+
+		dev_dbg(ec_dev->dev, "Got AML mutex '%s'", driver_data->mutex);
+
+		ec_dev->ec_lock = cros_ec_lpc_mutex_lock;
+		ec_dev->ec_unlock = cros_ec_lpc_mutex_unlock;
+	}
+
 	ret = cros_ec_register(ec_dev);
 	if (ret) {
 		dev_err(dev, "couldn't register ec_dev (%d)\n", ret);
@@ -502,7 +538,6 @@ static int cros_ec_lpc_probe(struct platform_device *pdev)
 	 * Connect a notify handler to process MKBP messages if we have a
 	 * companion ACPI device.
 	 */
-	adev = ACPI_COMPANION(dev);
 	if (adev) {
 		status = acpi_install_notify_handler(adev->handle,
 						     ACPI_ALL_NOTIFY,
@@ -539,6 +574,7 @@ static const struct lpc_driver_data framework_laptop_lpc_driver_data __initconst
 	.quirks = CROS_EC_LPC_QUIRK_REMAP_MEMORY |
 		  CROS_EC_LPC_QUIRK_SHORT_HOSTCMD_RESERVATION,
 	.quirk_mmio_memory_base = 0xE00,
+	.mutex = "ECMT",
 };
 
 static const struct dmi_system_id cros_ec_lpc_dmi_table[] __initconst = {
@@ -600,7 +636,7 @@ static const struct dmi_system_id cros_ec_lpc_dmi_table[] __initconst = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Framework"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "Laptop"),
 		},
-		.driver_data = &framework_laptop_lpc_driver_data,
+		.driver_data = (void *)&framework_laptop_lpc_driver_data,
 	},
 	{ /* sentinel */ }
 };
