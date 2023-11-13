@@ -15,6 +15,8 @@
 
 #include <linux/platform_data/cros_ec_commands.h>
 
+#include <linux/acpi.h>
+
 #define CROS_EC_DEV_NAME	"cros_ec"
 #define CROS_EC_DEV_FP_NAME	"cros_fp"
 #define CROS_EC_DEV_ISH_NAME	"cros_ish"
@@ -183,6 +185,7 @@ struct cros_ec_device {
 	void (*ec_unlock)(struct cros_ec_device *ec);
 	struct lock_class_key lockdep_key;
 	struct mutex lock;
+	acpi_handle aml_mutex;
 	u8 mkbp_event_supported;
 	bool host_sleep_v1;
 	struct blocking_notifier_head event_notifier;
