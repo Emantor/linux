@@ -159,9 +159,9 @@ static int cros_ec_ready_event(struct notifier_block *nb,
 	u32 host_event = cros_ec_get_host_event(ec_dev);
 
 	if (host_event & EC_HOST_EVENT_MASK(EC_HOST_EVENT_INTERFACE_READY)) {
-		mutex_lock(&ec_dev->lock);
+		ec_dev->ec_lock(ec_dev);
 		cros_ec_query_all(ec_dev);
-		mutex_unlock(&ec_dev->lock);
+		ec_dev->ec_unlock(ec_dev);
 		return NOTIFY_OK;
 	}
 
