@@ -168,6 +168,16 @@ static int cros_ec_ready_event(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+static void cros_ec_mutex_lock(struct cros_ec_device *ec_dev)
+{
+	mutex_lock(&ec_dev->lock);
+}
+
+static void cros_ec_mutex_unlock(struct cros_ec_device *ec_dev)
+{
+	mutex_unlock(&ec_dev->lock);
+}
+
 /**
  * cros_ec_register() - Register a new ChromeOS EC, using the provided info.
  * @ec_dev: Device to register.
@@ -199,6 +209,11 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 	ec_dev->dout = devm_kzalloc(dev, ec_dev->dout_size, GFP_KERNEL);
 	if (!ec_dev->dout)
 		return -ENOMEM;
+
+	if (!ec_dev->ec_lock && !ec_dev->ec_unlock) {
+		ec_dev->ec_lock = cros_ec_mutex_lock;
+		ec_dev->ec_unlock = cros_ec_mutex_unlock;
+	}
 
 	lockdep_register_key(&ec_dev->lockdep_key);
 	mutex_init(&ec_dev->lock);
