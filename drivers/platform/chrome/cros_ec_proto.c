@@ -608,13 +608,13 @@ int cros_ec_cmd_xfer(struct cros_ec_device *ec_dev, struct cros_ec_command *msg)
 {
 	int ret;
 
-	mutex_lock(&ec_dev->lock);
+	ec_dev->ec_lock(ec_dev);
 	if (ec_dev->proto_version == EC_PROTO_VERSION_UNKNOWN) {
 		ret = cros_ec_query_all(ec_dev);
 		if (ret) {
 			dev_err(ec_dev->dev,
 				"EC version unknown and query failed; aborting command\n");
-			mutex_unlock(&ec_dev->lock);
+			ec_dev->ec_unlock(ec_dev);
 			return ret;
 		}
 	}
@@ -630,7 +630,7 @@ int cros_ec_cmd_xfer(struct cros_ec_device *ec_dev, struct cros_ec_command *msg)
 				"request of size %u is too big (max: %u)\n",
 				msg->outsize,
 				ec_dev->max_request);
-			mutex_unlock(&ec_dev->lock);
+			ec_dev->ec_unlock(ec_dev);
 			return -EMSGSIZE;
 		}
 	} else {
@@ -639,13 +639,13 @@ int cros_ec_cmd_xfer(struct cros_ec_device *ec_dev, struct cros_ec_command *msg)
 				"passthru rq of size %u is too big (max: %u)\n",
 				msg->outsize,
 				ec_dev->max_passthru);
-			mutex_unlock(&ec_dev->lock);
+			ec_dev->ec_unlock(ec_dev);
 			return -EMSGSIZE;
 		}
 	}
 
 	ret = cros_ec_send_command(ec_dev, msg);
-	mutex_unlock(&ec_dev->lock);
+	ec_dev->ec_unlock(ec_dev);
 
 	return ret;
 }
