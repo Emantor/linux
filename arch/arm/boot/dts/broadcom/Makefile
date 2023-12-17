@@ -35,6 +35,7 @@ dtb-$(CONFIG_ARCH_BCM2835) += \
 	bcm2711-rpi-cm4-io.dtb \
 	bcm2835-rpi-zero.dtb \
 	bcm2835-rpi-zero-w.dtb
+	bcm2711-clockwork-uconsole.dtb \
 dtb-$(CONFIG_ARCH_BCMBCA) += \
 	bcm947622.dtb \
 	bcm963138.dtb \
